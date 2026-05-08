@@ -38,8 +38,8 @@
 - [Constraints](#constraints)
 - [Part 1 — Tick Accounting (`kernel/trap.c`)](#part-1--tick-accounting-kerneltrapc)
 - [Part 2 — Scheduling Algorithms (`kernel/sched.c`)](#part-2--scheduling-algorithms-kernelschedc)
-  - [Earliest Feasible Deadline First](#efdf-earliest-feasible-deadline-first)
   - [Fixed Priority](#fixed-priority-scheduling)
+  - [Earliest Feasible Deadline First](#efdf-earliest-feasible-deadline-first)
   - [Distance Based Priority](#dbp-distance-based-priority)
 - [Testing](#testing)
 - [References](#references)
@@ -62,7 +62,7 @@ Each RT process is a **periodic task** defined by the following parameters:
 | Parameter | Meaning |
 |-----------|---------|
 | Execution time | Ticks required per cycle |
-| Period | Cycle length in ticks (also the relative deadline: D = T) |
+| Period | Cycle length in ticks (also the relative deadline) |
 | Cycles | Number of cycles to execute before terminating |
 | Priority | For priority scheduling (lower number = higher priority) |
 | Arrival time | Absolute tick when the task first becomes runnable |
@@ -323,12 +323,12 @@ Two tasks, both arriving at tick 0:
 | Tick | Reasoning |
 |------|-----------|
 | 0 | Both RUNNABLE. #4 (dl=3, L=3−0−2=1) and #5 (dl=4, L=4−0−3=1) are both feasible. #4 has the earlier deadline → dispatch #4. exec_remaining=2, deadline delta=3, no sleeping tasks → `allocated_time=2`. |
-| 2 | #4 finishes cycle 1 (3 left); sleeps until tick 3 (next dl=6). RUNNABLE: #5 (dl=4, L=4−2−3=−1). Infeasible; no feasible tasks → `process#5 misses a deadline at 2 in scheduler`. #5's deadline advances to 8. |
-| 3 | #4 wakes (dl=6). Both RUNNABLE. #4 (dl=6, L=1) has an earlier deadline than #5 (dl=8, L=2) → dispatch #4. exec_remaining=2, deadline delta=3, no sleeping tasks → `allocated_time=2`. |
+| 2 | #4 finishes cycle 1 (3 left); sleeps until tick 3 (next dl=6). RUNNABLE: #5 (dl=4, L=4−2−3=−1). #5 is infeasible → `process#5 misses a deadline at 2 in scheduler`. #5's deadline advances to 8. |
+| 3 | #4 wakes (dl=6). RUNNABLE: #4 (dl=6, L=1). Feasible → dispatch #4. Sleeping #5 (dl=8) wakes at tick 4, later deadline than #4, no preemption → `allocated_time=2`. |
 | 5 | #4 finishes cycle 2 (2 left); sleeps until tick 6 (next dl=9). RUNNABLE: #5 (dl=8, L=8−5−3=0). Feasible → dispatch #5. Sleeping #4 wakes at tick 6 with dl=9 > #5's dl=8 → no preemption. exec_remaining=3, deadline delta=3 → `allocated_time=3`. |
-| 8 | #5 finishes cycle 1 (1 left); wakes immediately (next dl=12). RUNNABLE: #4 (woke tick 6, dl=9, L=9−8−2=−1) is infeasible → `process#4 misses a deadline at 8 in scheduler`; deadline advances to 12. Only #5 (dl=12, L=1) is feasible → dispatch #5. The infeasible #4 (original dl=9, delta=1) bounds the time slice → `allocated_time=1`. |
+| 8 | #5 finishes cycle 1 (1 left); wakes immediately (next dl=12). RUNNABLE: #4 (woke tick 6, dl=9, L=9−8−2=−1) is infeasible → `process#4 misses a deadline at 8 in scheduler`; deadline advances to 12. Only #5 (dl=12, L=1) is feasible → dispatch #5. Sleeping #4 wakes at tick 9, same dealine as #5 but lower pid → preempt #5 → `allocated_time=1`. |
 | 9 | #5 has consumed 1 of 3 exec ticks (2 remaining, dl=12). #4's deadline is now 12 (L=12−9−2=1). Both feasible, same deadline; tie-break by pid → dispatch #4. exec_remaining=2, deadline delta=3, no sleeping tasks → `allocated_time=2`. |
-| 11 | #4 finishes cycle 4 (0 left, exits). RUNNABLE: #5 (2 exec ticks remaining, dl=12, L=12−11−2=−1). Infeasible; no feasible tasks → `process#5 misses a deadline at 11 in scheduler`. End of trace. |
+| 11 | #4 finishes cycle 4 (0 left, exits). RUNNABLE: #5 (2 exec ticks remaining, dl=12, L=12−11−2=−1). #5 is infeasible → `process#5 misses a deadline at 11 in scheduler`. End of trace. |
 
 ---
 
@@ -395,15 +395,15 @@ Initial `current_distance` is computed from the all-successes history `(1,1,1)` 
 | Tick | Reasoning |
 |------|-----------|
 | 0 | Both RUNNABLE. #5 (dist=2) < #4 (dist=3) → dispatch #5. exec_remaining=2, deadline=3, no sleeping tasks → `allocated_time=2`. |
-| 2 | #5 finishes (success); history stays (1,1,1), dist stays 2. #5 sleeps until tick 3. Only #4 RUNNABLE (dist=3). exec_remaining=2, deadline=3. #5 wakes at tick 3 with dist=2, beating #4's dist=3 → preempt at tick 3 → `allocated_time=1`. |
+| 2 | #5 finishes (success); history stays (1,1,1), dist stays 2. #5 sleeps until tick 3. Only #4 RUNNABLE (dist=3). exec_remaining=2, deadline=3. Deadline reached in 1 tick → `allocated_time=1`. |
 | 3 | #4 has exec remaining past its deadline → `process#4 misses a deadline at 3 in scheduler`. History→(0,1,1): 1st success at index 1, dist=2. New deadline=6. #5 wakes (dist=2, deadline=6). Dist and deadline both tied; pid 4 < pid 5 → dispatch #4. exec_remaining=2, deadline=6, no sleeping tasks → `allocated_time=2`. |
-| 5 | #4 finishes (success); history→(1,0,1), 1st success at index 0, dist=3. #4 sleeps until tick 6. Only #5 RUNNABLE (dist=2). exec_remaining=2, deadline=6. #4 wakes at tick 6 with dist=3, not beating #5's dist=2 → no preempt. Deadline=6 reached in 1 tick → `allocated_time=1`. |
+| 5 | #4 finishes (success); history→(1,0,1), 1st success at index 0, dist=3. #4 sleeps until tick 6. Only #5 RUNNABLE (dist=2). exec_remaining=2, deadline=6. Deadline reached in 1 tick → `allocated_time=1`. |
 | 6 | #5 has exec remaining past its deadline → `process#5 misses a deadline at 6 in scheduler`. History→(0,1,1): 2nd success at index 2, dist=1. New deadline=9. #4 wakes (dist=3). #5 (dist=1) wins → dispatch #5. exec_remaining=2, deadline=9, no sleeping tasks → `allocated_time=2`. |
-| 8 | #5 finishes (success); history→(1,0,1), 2nd success at index 2, dist stays 1. #5 sleeps until tick 9. Only #4 RUNNABLE (dist=3). exec_remaining=2, deadline=9. #5 wakes at tick 9 with dist=1, beating #4's dist=3 → preempt at tick 9 → `allocated_time=1`. |
+| 8 | #5 finishes (success); history→(1,0,1), 2nd success at index 2, dist stays 1. #5 sleeps until tick 9. Only #4 RUNNABLE (dist=3). exec_remaining=2, deadline=9. Deadline reached in 1 tick → `allocated_time=1`. |
 | 9 | #4 has exec remaining past its deadline → `process#4 misses a deadline at 9 in scheduler`. History→(0,1,0): 1st success at index 1, dist=2. New deadline=12. #5 wakes (dist=1). #5 (dist=1) < #4 (dist=2) → dispatch #5. exec_remaining=2, deadline=12, no sleeping tasks → `allocated_time=2`. |
-| 11 | #5 finishes (success); history→(1,1,0), 2nd success at index 1, dist=2. #5 sleeps until tick 12. Only #4 RUNNABLE (dist=2). exec_remaining=2, deadline=12. #5 wakes at tick 12 with dist=2, deadline=15. Equal dist; #4 deadline 12 < #5 deadline 15 → #4 wins, no preempt. Deadline=12 reached in 1 tick → `allocated_time=1`. |
+| 11 | #5 finishes (success); history→(1,1,0), 2nd success at index 1, dist=2. #5 sleeps until tick 12. Only #4 RUNNABLE (dist=2). exec_remaining=2, deadline=12. Deadline reached in 1 tick → `allocated_time=1`. |
 | 12 | #4 has exec remaining past its deadline → `process#4 misses a deadline at 12 in scheduler`. History→(0,0,1): 1st success at index 2, dist=1. New deadline=15. #5 wakes (dist=2). #4 (dist=1) < #5 (dist=2) → dispatch #4. exec_remaining=2, deadline=15, no sleeping tasks → `allocated_time=2`. |
-| 14 | #4 finishes (success); history→(1,0,0), 1st success at index 0, dist=3. #4 sleeps until tick 15. Only #5 RUNNABLE (dist=2). exec_remaining=2, deadline=15. #4 wakes at tick 15 with dist=3, not beating #5's dist=2 → no preempt. Deadline=15 reached in 1 tick → `allocated_time=1`. |
+| 14 | #4 finishes (success); history→(1,0,0), 1st success at index 0, dist=3. #4 sleeps until tick 15. Only #5 RUNNABLE (dist=2). exec_remaining=2, deadline=15. Deadline reached in 1 tick → `allocated_time=1`. |
 | 15 | #5 has exec remaining past its deadline → `process#5 misses a deadline at 15 in scheduler`. History→(0,1,1): 2nd success at index 2, dist=1. New deadline=18. #4 wakes (dist=3). #5 (dist=1) < #4 (dist=3) → dispatch #5. exec_remaining=2, deadline=18, no sleeping tasks → `allocated_time=2`. |
 | 17 | #5 finishes (success, 0 cycles left, exits). Only #4 RUNNABLE (dist=3). exec_remaining=2, deadline=18. Deadline reached in 1 tick → `allocated_time=1`. |
 | 18 | #4 has exec remaining past its deadline → `process#4 misses a deadline at 18 in scheduler`. End of trace. |
